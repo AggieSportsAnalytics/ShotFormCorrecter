@@ -1,9 +1,8 @@
-train: /Users/arnavakula/Code/learning/AI-Basketball-Shot-Detection-Tracker/basketball.v1i.yolov8/train/images
-val: /Users/arnavakula/Code/learning/AI-Basketball-Shot-Detection-Tracker/basketball.v1i.yolov8/valid/images
-test: /Users/arnavakula/Code/learning/AI-Basketball-Shot-Detection-Tracker/basketball.v1i.yolov8/test/images
+#REPLACE WITH PATHS IN basketball.v1.yolov8
 
-# replace '...' with your local absolute paths
-# download the dataset used here: https://universe.roboflow.com/034-ganesh-kumar-m-v-cs-r2lwe/basketball-lhqoe/dataset/1
+train:
+val: 
+test: 
 
 nc: 2
 names: ['Basketball', 'Basketball Hoop']

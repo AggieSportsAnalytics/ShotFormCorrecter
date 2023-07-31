@@ -7,12 +7,12 @@ import math
 import numpy as np
 from utils import score, detect_down, detect_up, in_hoop_region, clean_hoop_pos, clean_ball_pos
 import PoseEstimationMin as pm
-import matplotlib.pyplot as plt
 import os
+import subprocess
 
 
 class ShotDetector:
-    def __init__(self, fp):
+    def __init__(self):
         # Load the YOLO model created from main.py - change text to your relative path
         self.model = YOLO("runs/detect/train/weights/best.pt")
         self.class_names = ['Basketball', 'Basketball Hoop']
@@ -21,7 +21,7 @@ class ShotDetector:
         # self.cap = cv2.VideoCapture(0)
 
         # Use video - replace text with your video path
-        self.cap = cv2.VideoCapture(fp)
+        self.cap = cv2.VideoCapture('practice-videos/D9_1_449_detail.mp4')
 
         self.ball_pos = []  # array of tuples ((x_pos, y_pos), frame count, width, height, conf)
         self.hoop_pos = []  # array of tuples ((x_pos, y_pos), frame count, width, height, conf)
@@ -50,27 +50,30 @@ class ShotDetector:
         self.below_shoulder = False
         self.above_shoulder = False
 
-        release_angle, left_feet_heights, right_feet_heights = self.run()
+        release_angle, follow_through_angle, left_feet_heights, right_feet_heights = self.run()
 
         print(f'RELEASE ANGLE: {release_angle}')
+        print(f'FOLLOW THROUGH ANGLE: {follow_through_angle}')
 
-        
         left_release_height = np.mean(left_feet_heights[0:50]) - left_feet_heights[-1]
         right_release_height = np.mean(right_feet_heights[0:50]) - right_feet_heights[-1]
         print(f'RELEASE HEIGHT: {np.mean([left_release_height, right_release_height])}')
 
-        # plt.figure()
-        # plt.plot(np.arange(0, len(left_feet_heights)), left_feet_heights)
-        # plt.show()
-
-        # plt.figure()
-        # plt.plot(np.arange(0, len(right_feet_heights)), right_feet_heights)
-        # plt.show()
 
     def run(self):
         release_angle = None
+        follow_through_angle = -1
         left_feet_heights = []
         right_feet_heights = []
+        last_angle = 0
+        num_frame = 0
+        angle_decreasing = False
+        already_beeped = False
+        release_frame = -1
+        already_released = False
+        follow_through_iter = 10
+        follow_through_best = 155
+        did_follow_through = False
 
         while True:
             ret, self.frame = self.cap.read()
@@ -118,27 +121,74 @@ class ShotDetector:
             left_feet_heights.append(self.lmList[29][2])
             right_feet_heights.append(self.lmList[30][2])
 
-            if(self.ball_pos):
-                bx, by = self.ball_pos[-1][0][0], self.ball_pos[-1][0][1] #most recent coordinates for ball
-                sx, sy = self.lmList[12][1], self.lmList[12][2] #shoulder coordinates
+            if did_follow_through:
+                if follow_through_angle > follow_through_best:
+                    cv2.putText(self.frame, 'GOOD FOLLOW THROUGH', (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+                else:
+                    cv2.putText(self.frame, 'DIDN\'T FOLLOW THROUGH', (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
 
-                error_margin = 50
-                dist_margin = 100
+            elif already_released and not did_follow_through:
+                if self.frame_count - release_frame > follow_through_iter:
+                    angle = self.detector.findAngle(self.img, 12, 14, 16, draw=True)
+
+                    if angle > follow_through_angle:
+                        follow_through_angle = angle
+
+                    # cv2.imwrite(f'follow-through/{temp}.jpg', self.img)
+                    follow_through_iter += 1
+                    # print(f'{temp} error -> {follow_through_angle} angle')
+
+                    if follow_through_iter >= 40:
+                        did_follow_through = True
                 
-                if(sy < by):
-                    self.below_shoulder = True
-                elif self.below_shoulder and sy > by + error_margin:
-                    self.above_shoulder = True
+                if self.frame_count - release_frame < 12:
+                    cv2.putText(self.frame, 'REMEMBER TO FOLLOW THROUGH', (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
                     
-                    rpx, rpy = self.lmList[12][1], self.lmList[12][2] #right pinky
+            elif not did_follow_through:
+                if(self.ball_pos):
+                    bx, by = self.ball_pos[-1][0][0], self.ball_pos[-1][0][1] #most recent coordinates for ball
+                    sx, sy = self.lmList[12][1], self.lmList[12][2] #shoulder coordinates
 
-                    dist = math.dist((rpx, rpy), (bx, by))
-                        
-                    if dist > dist_margin:
+                    angle_error = 15
+                    error_margin = 50
+                    dist_margin = 125
+
+                    if(sy < by):
+                        self.below_shoulder = True
+                    elif self.below_shoulder and sy > by + error_margin:
                         angle = self.detector.findAngle(self.img, 12, 14, 16, draw=True)
-                        release_angle = angle
-                        cv2.imwrite(f'release-points/RP-{os.path.splitext(fp)[0]}.jpg', self.img)
-                        break
+
+                        if angle < last_angle:
+                                angle_decreasing = True
+                        else:
+                            angle_decreasing = False
+                            
+                        if self.frame_count % 10 == 0:
+                            last_angle = angle
+
+                        if angle_decreasing and abs(angle - 60) <= angle_error:
+                            print(f'loaded angle: {angle}')
+                            cv2.putText(self.frame, 'RELEASE NOW', (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
+
+                            if not already_beeped:
+                                subprocess.run('osascript -e "beep"', shell=True)
+                                already_beeped = True
+
+                            # cv2.imwrite('loaded_angle.jpg', self.img)
+                        
+                        self.above_shoulder = True
+                        
+                        rpx, rpy = self.lmList[12][1], self.lmList[12][2] #right pinky
+
+                        dist = math.dist((rpx, rpy), (bx, by))
+                            
+                        if dist > dist_margin:
+                            release_angle = angle
+                            # cv2.imwrite(f'release-points/RP-{os.path.splitext(fp)[0]}.jpg', self.img)
+                            cv2.putText(self.frame, 'REMEMBER TO FOLLOW THROUGH', (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
+                            # cv2.imwrite(f'test.jpg', self.img)
+                            release_frame = self.frame_count
+                            already_released=True
 
             self.clean_motion()
             self.shot_detection()
@@ -154,7 +204,10 @@ class ShotDetector:
         self.cap.release()
         cv2.destroyAllWindows()
 
-        return release_angle, left_feet_heights, right_feet_heights
+        if release_angle > 180:
+            release_angle = 360 - 180
+
+        return release_angle, follow_through_angle, left_feet_heights, right_feet_heights
 
     def clean_motion(self):
         # Clean and display ball motion
@@ -200,9 +253,9 @@ class ShotDetector:
 
     def display_score(self):
         # Add text
-        text = str(self.makes) + " / " + str(self.attempts)
-        cv2.putText(self.frame, text, (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 6)
-        cv2.putText(self.frame, text, (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 3)
+        # text = str(self.makes) + " / " + str(self.attempts)
+        # cv2.putText(self.frame, text, (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 6)
+        # cv2.putText(self.frame, text, (50, 125), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 3)
 
         # Gradually fade out color after shot
         if self.fade_counter > 0:
@@ -212,5 +265,6 @@ class ShotDetector:
 
 
 if __name__ == "__main__":
-    for fp in os.listdir('practice-videos'):
-        ShotDetector(f'practice-videos/{fp}')
+    # for fp in os.listdir('practice-videos'):
+    #     ShotDetector(f'practice-videos/{fp}')
+    ShotDetector()

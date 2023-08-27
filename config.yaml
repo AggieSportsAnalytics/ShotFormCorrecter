@@ -1,0 +1,8 @@
+#REPLACE WITH PATHS IN basketball.v1.yolov8
+
+train:
+val: 
+test: 
+
+nc: 2
+names: ['Basketball', 'Basketball Hoop']

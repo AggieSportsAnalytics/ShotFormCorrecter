@@ -3,7 +3,6 @@ title: Basketball Freethrow Shotfrom Corrector
 description: Determines if a basketball player releases at the correct angle and follows through with the help of computer vision
 repository: AggieSportsAnalytics/ShotFormCorrecter
 
-intro: Take a look at our Director of Projects Andrew Hale walking us through this project!
 date: 2023-09-29
 published: true
 ---
